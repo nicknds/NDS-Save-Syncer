@@ -1,0 +1,9 @@
+K:\repos\Save Syncer\Save Syncer\bin\Release\Save Syncer.exe.config
+K:\repos\Save Syncer\Save Syncer\bin\Release\Save Syncer.exe
+K:\repos\Save Syncer\Save Syncer\bin\Release\Save Syncer.pdb
+K:\repos\Save Syncer\Save Syncer\obj\Release\Save_Syncer.Form1.resources
+K:\repos\Save Syncer\Save Syncer\obj\Release\Save_Syncer.HelpForm.resources
+K:\repos\Save Syncer\Save Syncer\obj\Release\Save_Syncer.Properties.Resources.resources
+K:\repos\Save Syncer\Save Syncer\obj\Release\Save Syncer.csproj.GenerateResource.cache
+K:\repos\Save Syncer\Save Syncer\obj\Release\Save Syncer.exe
+K:\repos\Save Syncer\Save Syncer\obj\Release\Save Syncer.pdb

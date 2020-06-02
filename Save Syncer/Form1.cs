@@ -19,54 +19,27 @@ namespace Save_Syncer
 
         public List<string> outputLines = new List<string>();
 
+        public string appdata = "", userprofile = "";
+
         public Form1()
         {
             InitializeComponent();
+            appdata = System.Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData, Environment.SpecialFolderOption.None);
+            userprofile = System.Environment.GetFolderPath(Environment.SpecialFolder.UserProfile, Environment.SpecialFolderOption.None);
             domainUpDown1.Text = "Add an item";
             LoadObjects();
             DisplayObjects();
             numericUpDownTimer.Value = (decimal)Properties.Settings.Default.TimerInterval / 1000m;
             numericUpDownWrite.Value = (decimal)Properties.Settings.Default.MinimumWriteDifference;
             numericUpDownOutput.Value = (decimal)Properties.Settings.Default.OutputLines;
+            timerSyncTick.Interval = (int)(numericUpDownTimer.Value * 1000m);
             timerSyncTick.Enabled = true;
             timerSyncTick.Start();
         }
 
         private void buttonAddNew_Click(object sender, EventArgs e)
         {
-            string folderA = "", folderB = "";
-            using (var fbd = new FolderBrowserDialog())
-            {
-                DialogResult result = fbd.ShowDialog();
-
-                if (result == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
-                {
-                    folderA = fbd.SelectedPath;
-                }
-            }
-            if (folderA.Length > 0)
-            {
-                using (var fbd = new FolderBrowserDialog())
-                {
-                    DialogResult result = fbd.ShowDialog();
-
-                    if (result == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
-                    {
-                        if (folderA != fbd.SelectedPath)
-                            folderB = fbd.SelectedPath;
-                    }
-                }
-            }
-            if (folderA.Length > 0 && folderB.Length > 0)
-            {
-                SyncObject syncObject = new SyncObject();
-                syncObject.folderA = folderA;
-                syncObject.folderB = folderB;
-                syncObject.fileName = "Temp";
-                syncObjects.Add(syncObject);
-                SaveObjects();
-                DisplayObjects();
-            }
+            AddNewSyncObject();
         }
 
         public void SaveObjects()
@@ -95,7 +68,7 @@ namespace Save_Syncer
             }
         }
 
-        public void DisplayObjects()
+        public void DisplayObjects(bool showLast = false)
         {
             string selectedItem = "";
             int newIndex = -1;
@@ -109,6 +82,7 @@ namespace Save_Syncer
                 domainUpDown1.Items.Add(syncObjects[i].fileName);
             }
             if (newIndex == -1 && domainUpDown1.Items.Count > 0) newIndex = 0;
+            if (showLast && domainUpDown1.Items.Count > 0) newIndex = domainUpDown1.Items.Count - 1;
             if (newIndex != -1) domainUpDown1.SelectedIndex = newIndex;
             else
             {
@@ -152,10 +126,11 @@ namespace Save_Syncer
             timer1.Enabled = false;
         }
 
-        public void UpdateObject()
+        public void UpdateObject(bool manual = false)
         {
             if (domainUpDown1.SelectedItem != null)
             {
+                if (manual) manualEntry = true;
                 int index = domainUpDown1.SelectedIndex;
                 Properties.Settings.Default.FolderAList[index] = textBoxFolderA.Text;
                 Properties.Settings.Default.FolderBList[index] = textBoxFolderB.Text;
@@ -183,20 +158,12 @@ namespace Save_Syncer
 
         private void textBoxFile_TextChanged(object sender, EventArgs e)
         {
-            if (!fillingBoxes)
-            {
-                manualEntry = true;
-                UpdateObject();
-            }
+            if (!fillingBoxes) UpdateObject(true);
         }
 
         private void textBoxFolderB_TextChanged(object sender, EventArgs e)
         {
-            if (!fillingBoxes)
-            {
-                manualEntry = true;
-                UpdateObject();
-            }
+            if (!fillingBoxes) UpdateObject(true);
         }
 
         private void button1_Click(object sender, EventArgs e)
@@ -240,49 +207,69 @@ namespace Save_Syncer
         {
             while (true)
             {
-                bool requireYield = true;
+                bool yieldRequired = true;
                 for (int i = 0; i < syncObjects.Count; i++)
                 {
+                    if (i > 0)
+                    {
+                        yield return true;
+                        yieldRequired = false;
+                    }
                     try
                     {
-                        bool aExists = File.Exists(syncObjects[i].FileA()), bExists = File.Exists(syncObjects[i].FileB());
-                        if (aExists && bExists) Output($"{syncObjects[i].fileName} found in both locations");
-                        else if (aExists || bExists) Output($"{syncObjects[i].fileName} found in one location");
-                        else Output($"{syncObjects[i].fileName} not found");
-                        if (aExists || bExists)
+                        bool folderAExists = Directory.Exists(syncObjects[i].folderA), folderBExists = Directory.Exists(syncObjects[i].folderB);
+                        if (folderAExists && folderBExists)
                         {
-                            if (aExists && bExists)
+                            bool aExists = File.Exists(syncObjects[i].FileA()), bExists = File.Exists(syncObjects[i].FileB());
+                            if (aExists && bExists) Output($"{syncObjects[i].fileName} found in both locations");
+                            else if (aExists || bExists) Output($"{syncObjects[i].fileName} found in one location");
+                            else Output($"{syncObjects[i].fileName} not found");
+                            if (aExists || bExists)
                             {
-                                DateTime aModification = File.GetLastWriteTimeUtc(syncObjects[i].FileA()),
-                                         bModification = File.GetLastWriteTimeUtc(syncObjects[i].FileB());
-                                TimeSpan difference = Difference(aModification, bModification);
-                                if (difference.TotalMilliseconds == 0.0) Output("Both files are synced");
+                                if (aExists && bExists)
+                                {
+                                    DateTime aModification = File.GetLastWriteTimeUtc(syncObjects[i].FileA()),
+                                                bModification = File.GetLastWriteTimeUtc(syncObjects[i].FileB());
+                                    TimeSpan difference = Difference(aModification, bModification);
+                                    if (difference.TotalMilliseconds == 0.0) Output("Both files are synced");
+                                    else
+                                    {
+                                        if (aModification > bModification) Output($"File in folder '{syncObjects[i].folderA}' is {difference.TotalSeconds} newer");
+                                        else Output($"File in folder '{syncObjects[i].folderB}' is {difference.TotalSeconds} newer");
+                                    }
+                                    if (difference.TotalSeconds >= (double)numericUpDownWrite.Value)
+                                    {
+                                        if (aModification > bModification)
+                                            Sync(syncObjects[i].FileA(), syncObjects[i].FileB());
+                                        else
+                                            Sync(syncObjects[i].FileB(), syncObjects[i].FileA());
+                                    }
+                                }
                                 else
                                 {
-                                    if (aModification > bModification) Output($"File in folder '{syncObjects[i].folderA}' is {difference.TotalSeconds} newer");
-                                    else Output($"File in folder '{syncObjects[i].folderB}' is {difference.TotalSeconds} newer");
-                                }
-                                if (difference.TotalSeconds >= (double)numericUpDownWrite.Value)
-                                {
-                                    if (aModification > bModification)
-                                        Sync(syncObjects[i].FileA(), syncObjects[i].FileB());
-                                    else
-                                        Sync(syncObjects[i].FileB(), syncObjects[i].FileA());
+                                    Output("Syncing only file to other location");
+                                    if (aExists) Sync(syncObjects[i].FileA(), syncObjects[i].FileB());
+                                    else Sync(syncObjects[i].FileB(), syncObjects[i].FileA());
                                 }
                             }
-                            else
+                        }
+                        else
+                        {
+                            if (!folderAExists)
                             {
-                                Output("Syncing only file to other location");
-                                if (aExists) Sync(syncObjects[i].FileA(), syncObjects[i].FileB());
-                                else Sync(syncObjects[i].FileB(), syncObjects[i].FileA());
+                                if (syncObjects[i].folderA.Length == 0) Output($"Please choose Folder A for object {syncObjects[i].fileName}");
+                                else Output($"Folder {syncObjects[i].folderA} for object {syncObjects[i].fileName} doesn't exist");
+                            }
+                            if (!folderBExists)
+                            {
+                                if (syncObjects[i].folderB.Length == 0) Output($"Please choose Folder B for object {syncObjects[i].fileName}");
+                                else Output($"Folder {syncObjects[i].folderB} for object {syncObjects[i].fileName} doesn't exist");
                             }
                         }
                     }
                     catch { }
-                    requireYield = false;
-                    yield return true;
                 }
-                if (requireYield) yield return true;
+                if (yieldRequired) yield return true;
             }
         }
 
@@ -335,6 +322,7 @@ namespace Save_Syncer
         private void showToolStripMenuItem_Click(object sender, EventArgs e)
         {
             this.Show();
+            notifyIcon1.Visible = false;
         }
 
         private void closeToolStripMenuItem_Click(object sender, EventArgs e)
@@ -351,6 +339,7 @@ namespace Save_Syncer
         private void notifyIcon1_DoubleClick(object sender, EventArgs e)
         {
             this.Show();
+            notifyIcon1.Visible = false;
         }
         private void button2_Click(object sender, EventArgs e)
         {
@@ -366,6 +355,262 @@ namespace Save_Syncer
         private void notifyIcon1_MouseDoubleClick(object sender, MouseEventArgs e)
         {
             this.Show();
+            notifyIcon1.Visible = false;
+        }
+
+        private void button3_Click(object sender, EventArgs e)
+        {
+            if (syncObjects.Count == 0) AddNewSyncObject();
+            if (domainUpDown1.SelectedItem != null)
+            {
+                using (var fbd = new FolderBrowserDialog())
+                {
+                    DialogResult result = fbd.ShowDialog();
+
+                    if (result == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
+                    {
+                        fillingBoxes = true;
+                        textBoxFolderA.Text = fbd.SelectedPath;
+                        UpdateObject(true);
+                    }
+                }
+            }
+        }
+
+        private void button4_Click(object sender, EventArgs e)
+        {
+            if (syncObjects.Count == 0) AddNewSyncObject();
+            if (domainUpDown1.SelectedItem != null)
+            {
+                using (var fbd = new FolderBrowserDialog())
+                {
+                    DialogResult result = fbd.ShowDialog();
+
+                    if (result == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
+                    {
+                        fillingBoxes = true;
+                        textBoxFolderB.Text = fbd.SelectedPath;
+                        UpdateObject(true);
+                    }
+                }
+            }
+        }
+
+        private void button5_Click(object sender, EventArgs e)
+        {
+            if (syncObjects.Count == 0) AddNewSyncObject();
+            if (domainUpDown1.SelectedItem != null)
+            {
+                using (var fbd = new OpenFileDialog())
+                {
+                    DialogResult result = fbd.ShowDialog();
+                    if (result == DialogResult.OK)
+                    {
+                        fillingBoxes = true;
+                        int index = domainUpDown1.SelectedIndex;
+                        textBoxFile.Text = Path.GetFileName(fbd.FileName);
+                        string folder = fbd.FileName.Substring(0, fbd.FileName.LastIndexOf(@"\"));
+                        if (syncObjects[index].folderA.Length == 0 || syncObjects[index].folderB.Length == 0)
+                        {
+                            if (syncObjects[index].folderA.Length == 0 && (syncObjects[index].folderB.Length == 0 || syncObjects[index].folderB != folder))
+                                textBoxFolderA.Text = folder;
+                            else if (syncObjects[index].folderB.Length == 0 && (syncObjects[index].folderA.Length == 0 || syncObjects[index].folderA != folder))
+                                textBoxFolderB.Text = folder;
+                        }
+                        UpdateObject(true);
+                    }
+                }
+            }
+        }
+
+        public void AddNewSyncObject()
+        {
+            syncObjects.Add(new SyncObject());
+            SaveObjects();
+            DisplayObjects(true);
+        }
+
+        private void appdataToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (syncObjects.Count == 0) AddNewSyncObject();
+            if (domainUpDown1.SelectedItem != null)
+            {
+                using (var fbd = new FolderBrowserDialog())
+                {
+                    fbd.RootFolder = Environment.SpecialFolder.ApplicationData;
+                    DialogResult result = fbd.ShowDialog();
+
+                    if (result == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
+                    {
+                        fillingBoxes = true;
+                        if (syncObjects[domainUpDown1.SelectedIndex].folderA.Length == 0 && (syncObjects[domainUpDown1.SelectedIndex].folderB.Length == 0 || syncObjects[domainUpDown1.SelectedIndex].folderB != fbd.SelectedPath))
+                            textBoxFolderA.Text = fbd.SelectedPath;
+                        if (syncObjects[domainUpDown1.SelectedIndex].folderB.Length == 0 && (syncObjects[domainUpDown1.SelectedIndex].folderA.Length == 0 || syncObjects[domainUpDown1.SelectedIndex].folderA != fbd.SelectedPath))
+                            textBoxFolderB.Text = fbd.SelectedPath;
+                        UpdateObject(true);
+                    }
+                }
+            }
+        }
+
+        private void profileToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (syncObjects.Count == 0) AddNewSyncObject();
+            if (domainUpDown1.SelectedItem != null)
+            {
+                using (var fbd = new FolderBrowserDialog())
+                {
+                    fbd.RootFolder = Environment.SpecialFolder.UserProfile;
+                    DialogResult result = fbd.ShowDialog();
+
+                    if (result == DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
+                    {
+                        fillingBoxes = true;
+                        if (syncObjects[domainUpDown1.SelectedIndex].folderA.Length == 0 && (syncObjects[domainUpDown1.SelectedIndex].folderB.Length == 0 || syncObjects[domainUpDown1.SelectedIndex].folderB != fbd.SelectedPath))
+                            textBoxFolderA.Text = fbd.SelectedPath;
+                        if (syncObjects[domainUpDown1.SelectedIndex].folderB.Length == 0 && (syncObjects[domainUpDown1.SelectedIndex].folderA.Length == 0 || syncObjects[domainUpDown1.SelectedIndex].folderA != fbd.SelectedPath))
+                            textBoxFolderB.Text = fbd.SelectedPath;
+                        UpdateObject(true);
+                    }
+                }
+            }
+        }
+
+        private void factorioToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            string folder = appdata + @"\Factorio\saves";
+            if (Directory.Exists(folder))
+            {
+                fillingBoxes = true;
+                if (syncObjects.Count == 0) AddNewSyncObject();
+                if (syncObjects[domainUpDown1.SelectedIndex].folderA.Length == 0 || syncObjects[domainUpDown1.SelectedIndex].folderB.Length > 0)
+                    textBoxFolderA.Text = folder;
+                else textBoxFolderB.Text = folder;
+                UpdateObject(true);
+            }
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            timer2.Start();
+        }
+
+        int mainIndex = 0, subIndex = 0;
+        private void timer2_Tick(object sender, EventArgs e)
+        {
+            if (syncObjects.Count == 0)
+            {
+                if (mainIndex != 0)
+                {
+                    subIndex = 0;
+                    ResetButtons();
+                }
+                mainIndex = 0;
+                richTextBox2.Text = "You don't have any sync objects set. Press 'Select File' and choose a file to sync";
+                switch (subIndex)
+                {
+                    case 0:
+                        button5.BackColor = Color.Red;
+                        subIndex = 1;
+                        break;
+                    case 1:
+                        button5.BackColor = Color.Green;
+                        subIndex = 0;
+                        break;
+                }
+            }
+            else if (syncObjects[0].folderA.Length == 0)
+            {
+                if (mainIndex != 1)
+                {
+                    subIndex = 0;
+                    ResetButtons();
+                }
+                mainIndex = 1;
+                richTextBox2.Text = "Select Folder A";
+                switch (subIndex)
+                {
+                    case 0:
+                        button3.BackColor = Color.Red;
+                        subIndex = 1;
+                        break;
+                    case 1:
+                        button3.BackColor = Color.Green;
+                        subIndex = 0;
+                        break;
+                }
+            }
+            else if (syncObjects[0].folderB.Length == 0)
+            {
+                if (mainIndex != 2)
+                {
+                    subIndex = 0;
+                    ResetButtons();
+                }
+                mainIndex = 2;
+                richTextBox2.Text = "Select Folder B";
+                switch (subIndex)
+                {
+                    case 0:
+                        button4.BackColor = Color.Red;
+                        subIndex = 1;
+                        break;
+                    case 1:
+                        button4.BackColor = Color.Green;
+                        subIndex = 0;
+                        break;
+                }
+            }
+            else if (syncObjects[0].fileName.Length > 0 && !File.Exists(syncObjects[0].FileA()) && !File.Exists(syncObjects[0].FileB()))
+            {
+                if (mainIndex != 3)
+                {
+                    subIndex = 0;
+                    ResetButtons();
+                }
+                mainIndex = 3;
+                richTextBox2.Text = "Select a file or enter the full name including the extension excluding the path, e.g. 'Notes.txt'";
+                switch (subIndex)
+                {
+                    case 0:
+                        button5.BackColor = Color.Red;
+                        textBoxFile.BackColor = Color.FromArgb(240, 240, 240);
+                        subIndex = 1;
+                        break;
+                    case 1:
+                        button5.BackColor = Color.Green;
+                        textBoxFile.BackColor = Color.FromArgb(200, 240, 240);
+                        subIndex = 0;
+                        break;
+                }
+            }
+            else
+            {
+                richTextBox2.Text = "";
+                ResetButtons();
+            }
+        }
+
+        public void ResetButtons()
+        {
+            button5.BackColor = button2.BackColor;
+            button3.BackColor = button2.BackColor;
+            button4.BackColor = button2.BackColor;
+            textBoxFile.BackColor = textBoxFolderA.BackColor;
+        }
+
+        private void spaceEngineersToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            string folder = appdata + @"\SpaceEngineers\Saves";
+            if (Directory.Exists(folder))
+            {
+                fillingBoxes = true;
+                if (syncObjects.Count == 0) AddNewSyncObject();
+                if (syncObjects[domainUpDown1.SelectedIndex].folderA.Length == 0 || syncObjects[domainUpDown1.SelectedIndex].folderB.Length > 0)
+                    textBoxFolderA.Text = folder;
+                else textBoxFolderB.Text = folder;
+                UpdateObject(true);
+            }
         }
 
         private void HelpClosed(object sender, EventArgs e)
@@ -378,14 +623,14 @@ namespace Save_Syncer
             if (!fillingBoxes)
             {
                 manualEntry = true;
-                UpdateObject();
+                UpdateObject(true);
             }
         }
     }
 
     public class SyncObject
     {
-        public string folderA = "", folderB = "", fileName = "";
+        public string folderA = "", folderB = "", fileName = "Temp";
 
         public string FileA()
         {

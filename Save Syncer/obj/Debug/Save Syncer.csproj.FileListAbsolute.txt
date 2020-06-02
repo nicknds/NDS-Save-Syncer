@@ -1,7 +1,6 @@
 K:\repos\Save Syncer\Save Syncer\bin\Debug\Save Syncer.exe.config
 K:\repos\Save Syncer\Save Syncer\bin\Debug\Save Syncer.exe
 K:\repos\Save Syncer\Save Syncer\bin\Debug\Save Syncer.pdb
-K:\repos\Save Syncer\Save Syncer\obj\Debug\Save Syncer.csprojAssemblyReference.cache
 K:\repos\Save Syncer\Save Syncer\obj\Debug\Save_Syncer.Form1.resources
 K:\repos\Save Syncer\Save Syncer\obj\Debug\Save_Syncer.Properties.Resources.resources
 K:\repos\Save Syncer\Save Syncer\obj\Debug\Save Syncer.csproj.GenerateResource.cache
